@@ -273,15 +273,22 @@ export class GitLabByteStream {
     this.pumpOutbound();
   }
 
-  /** Send while credit allows; the socket is paused whenever the buffer cannot drain,
-   *  so a slow gateway never grows the buffer unboundedly. */
+  /** Send while credit allows, splitting the head chunk when only part of it fits:
+   *  remaining credit is always usable, so a peer window is never stranded by chunk
+   *  alignment (TCP segmentation differs by platform). The socket is paused whenever
+   *  the buffer cannot drain, so a slow gateway never grows the buffer unboundedly. */
   private pumpOutbound(): void {
-    while (this.outboundBuffer.length > 0) {
+    while (this.outboundBuffer.length > 0 && this.sendCredit > 0) {
       const head = this.outboundBuffer[0];
-      if (head === undefined || head.length > this.sendCredit) break;
-      this.outboundBuffer.shift();
-      this.sendCredit -= head.length;
-      this.emit({ type: "stream-data", streamId: this.options.streamId, dataBase64: head.toString("base64") });
+      if (head === undefined) break;
+      const slice = head.length <= this.sendCredit ? head : head.subarray(0, this.sendCredit);
+      this.sendCredit -= slice.length;
+      if (slice.length === head.length) {
+        this.outboundBuffer.shift();
+      } else {
+        this.outboundBuffer[0] = head.subarray(slice.length);
+      }
+      this.emit({ type: "stream-data", streamId: this.options.streamId, dataBase64: slice.toString("base64") });
     }
     if (this.outboundBuffer.length > 0) {
       this.socket?.pause();
