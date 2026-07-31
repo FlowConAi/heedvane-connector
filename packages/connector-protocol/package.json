@@ -1,0 +1,22 @@
+{
+  "name": "@heedvane/connector-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wire contract shared by the connector gateway and the customer-run code-host connector: framed JSON over one mutually authenticated WebSocket, plus the signed request allowlist and capability profiles.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "rm -rf dist && pnpm build && node --test --test-concurrency=1 --test-timeout=60000 dist/frames.test.js dist/allowlist.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

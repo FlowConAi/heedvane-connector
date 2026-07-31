@@ -1,0 +1,13 @@
+{
+  "name": "heedvane-connector",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter @heedvane/connector-protocol build && pnpm --filter @heedvane/connector build",
+    "test": "pnpm --filter @heedvane/connector-protocol test && pnpm --filter @heedvane/connector test"
+  }
+}

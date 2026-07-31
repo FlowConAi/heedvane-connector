@@ -1,0 +1,8 @@
+# The canonical connector image build uses the REPOSITORY ROOT as its context (see the
+# Dockerfile header), and the root .dockerignore governs that build. This file keeps the
+# connector directory free of build residue if the directory is ever used as a context
+# on its own (for example by a local pack-based build).
+node_modules
+dist
+src/test-fixtures
+*.tsbuildinfo
