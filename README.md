@@ -29,22 +29,23 @@ The wire contract: [`packages/connector-protocol/README.md`](packages/connector-
 ## Quickstart
 
 ```sh
-docker build -f apps/connector/Dockerfile -t heedvane/connector:0.1.0 .
+docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.0 .
 ```
 
 Heedvane's enrollment dialog emits the exact `docker run` command for your
 connection with the variables filled in:
 
 ```sh
-docker run --rm \
+docker run --restart unless-stopped --name heedvane-connector \
+  -v heedvane-connector-data:/var/lib/heedvane-connector \
   -e HEEDVANE_GATEWAY_URL=wss://api.heedvane.example/connector-gateway \
   -e HEEDVANE_ENROLLMENT_TOKEN=<single-use token> \
+  -e HEEDVANE_CREDENTIAL_FILE=/var/lib/heedvane-connector/credential \
   -e GITLAB_BASE_URL=https://gitlab.example.com \
+  -e GITLAB_TOKEN=<GitLab token with api scope> \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
-  -v /srv/heedvane-connector:/run/heedvane \
-  -e HEEDVANE_CREDENTIAL_FILE=/run/heedvane/credential \
   -p 8080:8080 \
-  heedvane/connector:0.1.0
+  heedvane/connector:0.2.0
 ```
 
 First boot exchanges the single-use enrollment token for a long-lived credential

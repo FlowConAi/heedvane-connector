@@ -2,7 +2,7 @@
 # heedvane/connector image. The connector is a pnpm workspace app, so the build context
 # is the REPOSITORY ROOT and the root .dockerignore governs what enters the context:
 #
-#   docker build -f apps/connector/Dockerfile -t heedvane/connector:0.1.0 .
+#   docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.0 .
 
 FROM node:22-alpine AS build
 RUN corepack enable
@@ -30,6 +30,8 @@ WORKDIR /app
 COPY --from=build --chown=connector:connector /out ./
 USER connector
 ENV NODE_ENV=production
+ENV HEEDVANE_CREDENTIAL_FILE=/var/lib/heedvane-connector/credential
+VOLUME ["/var/lib/heedvane-connector"]
 # WEBHOOK_LISTEN_PORT (default 8080) is the only inbound port, and only the customer
 # GitLab ever talks to it; the tunnel itself is outbound only.
 EXPOSE 8080

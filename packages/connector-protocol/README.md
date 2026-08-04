@@ -1,6 +1,6 @@
 # @heedvane/connector-protocol
 
-> Last updated: 2026-07-29
+> Last updated: 2026-08-04
 
 Wire contract shared by the connector gateway (hub side) and the customer-run code-host
 connector. One mutually authenticated WebSocket carries framed JSON in both directions;
@@ -41,21 +41,28 @@ and the failed field. Per-type `is*Frame` guards narrow already-parsed values.
 | `webhook` | connector to gateway | A code-host webhook delivery. `verificationScheme` is `secret-token` (classic X-Gitlab-Token comparison, the only scheme GitLab before 19 offers) or `signing-token` (GitLab 19+). Headers travel unaltered so the hub can verify. |
 | `stream-open` | gateway to connector | Opens a raw bidirectional byte stream to `target: {host, port}` inside the customer network. Only the gateway opens streams. |
 | `stream-open-ack` | connector to gateway | Open result. `ok: true` carries no `code`/`message`; `ok: false` requires both, with `code` from the shared stream-error set. |
+| `http-stream-open` | gateway to connector | Opens an authenticated, allowlisted GitLab HTTP stream. The connector injects its local token and preserves streaming request and response bodies. Protocol 3 only. |
+| `http-stream-response` | connector to gateway | Response status and headers for an HTTP stream. Body bytes continue in `stream-data` frames. Protocol 3 only. |
 | `stream-data` | both | Stream payload as base64, decoded length capped at `MAX_STREAM_DATA_CHUNK_BYTES`. |
 | `stream-window` | both | Additive flow-control credit in bytes. A sender must not have more unacked bytes in flight than its current credit. |
 | `stream-close` | both | Directional half-close: the sender will send no more `stream-data` on this stream. Optional `reason` is `done` or `reset`. |
 | `ping` / `pong` | both | Liveness; `pong` echoes the `ping` nonce. |
 | `error` | gateway to connector | Connection-level refusal (`enrollment-failed`, `credential-invalid`, `protocol-version-unsupported`, `connector-version-unsupported`, `frame-invalid`). A version refusal message names both the actual version and the floor. |
 
-Protocol constants: `PROTOCOL_VERSION = 2`, `MIN_SUPPORTED_CONNECTOR_VERSION`,
+Protocol constants: `PROTOCOL_VERSION = 3`, `MIN_SUPPORTED_PROTOCOL_VERSION = 2`, `MIN_SUPPORTED_CONNECTOR_VERSION`,
 `DEFAULT_STREAM_WINDOW_BYTES` (256 KiB), `MAX_STREAM_DATA_CHUNK_BYTES` (64 KiB).
 
-Why version 2: the byte-stream frames below are additive on paper, but a version 1 peer
+Why version 2 introduced raw streams: the byte-stream frames below are additive on paper, but a version 1 peer
 rejects unknown frame types rather than ignoring them, so a gateway speaking streams to
 a version 1 connector would break its tunnel. The version is therefore the stream
-capability signal: peers that understand streams advertise 2, and a mismatch is refused
-at hello with both numbers named. While the version check is strict equality, hub and
-connector must upgrade together.
+capability signal: peers that understand streams advertise 2.
+
+Why version 3: an ordinary CONNECT relay cannot inject a connector-local GitLab token
+inside TLS. Protocol 3 adds an authenticated HTTP stream that terminates GitLab TLS in
+the connector, applies the signed allowlist and local capability profile, injects the
+local token, and streams smart-HTTP clone traffic without buffering the repository.
+The gateway accepts protocol 2 during migration, but clone requests that require local
+credentials return an explicit upgrade error until the connector advertises protocol 3.
 
 Version skew: validators fully check every known field but never strip unknown fields,
 because connector and gateway ship independently. Unknown frame types are rejected with
@@ -84,6 +91,16 @@ Bulk isolation has two parts, because a WebSocket message is the unit the tunnel
 preempt: the window bounds how far one stream can run ahead, and
 `MAX_STREAM_DATA_CHUNK_BYTES` bounds how long one message occupies the tunnel, so
 webhook and request/response frames never wait behind more than one bulk chunk.
+
+## Authenticated HTTP streams (protocol 3)
+
+Git smart HTTP needs both streaming and authentication. The gateway opens an
+`http-stream-open` with the exact method, path, and ordered query authorized for the
+connection. The connector checks the signed allowlist and its local capability profile,
+removes any incoming authorization headers, injects `GITLAB_TOKEN`, and calls the
+configured `GITLAB_BASE_URL`. It returns status and safe response headers in
+`http-stream-response`; request and response bodies use the same windowed data frames
+as raw streams. `git-receive-pack` remains structurally impossible.
 
 ## Allowlist (`src/allowlist.ts`)
 
