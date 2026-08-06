@@ -1,6 +1,6 @@
 # connector - customer-run code-host connector
 
-> Last updated: 2026-07-30
+> Last updated: 2026-08-04
 
 The customer-side half of the connector tunnel: one outbound WebSocket to the api's
 connector gateway, serving the signed-allowlist subset of GitLab traffic plus local
@@ -36,5 +36,10 @@ Wire contract: [`@heedvane/connector-protocol`](../../packages/connector-protoco
   design), dials ONLY the route, passes bytes opaquely (TLS is the endpoints'
   business), honors the window in both directions (flow-control-violated is terminal),
   and kills every stream when its tunnel dies.
+- **Authenticated HTTP streams (protocol 3) keep credentials local.**
+  `src/gitlab-http-stream.ts` terminates GitLab TLS inside the customer's network,
+  applies the signed allowlist and local capability profile, strips caller auth,
+  injects `GITLAB_TOKEN`, and streams only smart-HTTP upload-pack traffic. Bodies and
+  tokens never enter connector logs.
 - Tests are `node:test` via `tsx` against in-process stub servers (stub gateway, stub
   GitLab, stub CONNECT proxy): `pnpm --filter @heedvane/connector test`.

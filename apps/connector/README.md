@@ -1,6 +1,6 @@
 # @heedvane/connector
 
-> Last updated: 2026-07-29
+> Last updated: 2026-08-04
 
 The customer-run half of the Heedvane code-host connector. It runs inside the
 customer's network, opens ONE outbound WebSocket tunnel to the Heedvane connector
@@ -23,7 +23,7 @@ Build from the repository root (the connector is a pnpm workspace app, so the bu
 context must be the repo root; the root `.dockerignore` governs it):
 
 ```sh
-docker build -f apps/connector/Dockerfile -t heedvane/connector:0.1.0 .
+docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.0 .
 ```
 
 The hub's enrollment dialog (`POST /api/code-hosts/gitlab/connector-enrollments` in the
@@ -31,16 +31,17 @@ UI) emits the exact `docker run` command for a connection, with these variables 
 in:
 
 ```sh
-docker run --rm \
+docker run --restart unless-stopped --name heedvane-connector \
+  -v heedvane-connector-data:/var/lib/heedvane-connector \
   -e HEEDVANE_GATEWAY_URL=wss://api.heedvane.example/connector-gateway \
   -e HEEDVANE_ENROLLMENT_TOKEN=<single-use token> \
+  -e HEEDVANE_CREDENTIAL_FILE=/var/lib/heedvane-connector/credential \
   -e GITLAB_BASE_URL=https://gitlab.example.com \
+  -e GITLAB_TOKEN=<GitLab token with api scope> \
   -e "HEEDVANE_CONNECTOR_NAME=Zurich office" \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
-  -v /srv/heedvane-connector:/run/heedvane \
-  -e HEEDVANE_CREDENTIAL_FILE=/run/heedvane/credential \
   -p 8080:8080 \
-  heedvane/connector:0.1.0
+  heedvane/connector:0.2.0
 ```
 
 First boot enrolls: the connector exchanges the single-use enrollment token for a
@@ -56,9 +57,9 @@ the enrollment token itself cannot be replayed.
 | `HEEDVANE_GATEWAY_URL` | yes | | ws(s) URL of the connector gateway. `HEEDVANE_CONNECTOR_GATEWAY_URL` is accepted as an alias. |
 | `HEEDVANE_ENROLLMENT_TOKEN` | first boot | | Single-use enrollment token from the hub UI. |
 | `HEEDVANE_CONNECTOR_CREDENTIAL` | restarts | | Long-lived credential, if not using the file below. |
-| `HEEDVANE_CREDENTIAL_FILE` | recommended | | Path the credential is read from and persisted to. Mount it. Resolution order: env credential, then this file when it holds one, then the enrollment token. A persisted credential therefore wins over the still-configured consumed token on every restart, and a missing file on first boot simply means enroll. To force a fresh enrollment, delete the file. |
+| `HEEDVANE_CREDENTIAL_FILE` | recommended | `/var/lib/heedvane-connector/credential` in Docker | Path the credential is read from and persisted to. Mount its parent directory. Resolution order: env credential, then this file when it holds one, then the enrollment token. A persisted credential therefore wins over the still-configured consumed token on every restart, and a missing file on first boot simply means enroll. To force a fresh enrollment, delete the file. |
 | `GITLAB_BASE_URL` | yes | | http(s) origin of the GitLab instance this connector serves. |
-| `GITLAB_TOKEN` | option ii | | Local token injected when a request arrives WITHOUT a credential. Requests carrying one (option i, the default hub behavior) use the carried one. |
+| `GITLAB_TOKEN` | recommended | | Local token injected when a request arrives without a credential. This is the normal private GitLab checkout path, and the token never leaves the customer network. Legacy hub-held credentials remain supported during migration. |
 | `HEEDVANE_CONNECTOR_NAME` | no | | Display name reported to the hub (`CONNECTOR_NAME` alias). |
 | `HEEDVANE_CAPABILITY_PROFILE` | no | `read-only` | `read-only` or `read-write` (`CAPABILITY_PROFILE` alias). The signed allowlist may only ever be a subset of this profile: anything outside it is refused with `profile-refused`. |
 | `HUB_ALLOWLIST_PUBLIC_KEY_FILE` | no | fetched | Ed25519 public key (PEM) matching the gateway's signing key. When unset, the connector fetches it at boot from the hub at `<gateway origin>/connector/allowlist-public-key` (derived from `HEEDVANE_GATEWAY_URL`, through the same proxy and gateway CA settings as the tunnel) and logs the fetch. A fetch failure or a malformed PEM is a boot error naming the URL tried; verification is never skipped. Set the file only when the hub cannot be reached for the fetch. |

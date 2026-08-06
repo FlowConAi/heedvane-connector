@@ -20,6 +20,7 @@ import {
   FrameValidationError,
   isAllowlistFrame,
   isErrorFrame,
+  isHttpStreamOpenFrame,
   isPingFrame,
   isRequestFrame,
   isResponseFrame,
@@ -35,6 +36,7 @@ import {
   type AllowlistFrame,
   type ClientHelloFrame,
   type Frame,
+  type HttpStreamOpenFrame,
   type RequestFrame,
   type ResponseFrame,
   type ServerHelloFrame,
@@ -50,6 +52,7 @@ import { WebSocket, type ClientOptions } from "ws";
 import { type AuditLog } from "./audit-log.js";
 import { backoffDelayMs, DEFAULT_BACKOFF, type BackoffOptions } from "./backoff.js";
 import { GitLabByteStream, gitLabAuthorityFor } from "./byte-stream.js";
+import { GitLabHttpStream } from "./gitlab-http-stream.js";
 import type { ConnectorConfig } from "./config.js";
 import { forwardToGitLab } from "./gitlab-forwarder.js";
 import { buildGatewaySocketOptions } from "./proxy-agent.js";
@@ -89,7 +92,7 @@ interface Session {
    *  peers): the second authority a byte stream may target. Null when not sent. */
   instanceBaseUrl: string | null;
   /** Open protocol-2 byte streams; they die with this session, never outliving it. */
-  streams: Map<string, GitLabByteStream>;
+  streams: Map<string, GitLabByteStream | GitLabHttpStream>;
 }
 
 type SessionEnd =
@@ -266,6 +269,7 @@ export class ConnectorTunnel {
     if (isServerHelloFrame(frame)) return this.onServerHello(session, frame);
     if (isAllowlistFrame(frame)) return this.onAllowlist(session, frame, finish);
     if (isRequestFrame(frame)) return this.onRequest(session, frame, finish);
+    if (isHttpStreamOpenFrame(frame)) return this.onHttpStreamOpen(session, frame, finish);
     if (isStreamOpenFrame(frame)) return this.onStreamOpen(session, frame, finish);
     if (isGatewayStreamFrame(frame)) return this.onStreamFrame(session, frame);
     if (isPingFrame(frame)) return this.send(session, { type: "pong", nonce: frame.nonce });
@@ -311,6 +315,41 @@ export class ConnectorTunnel {
       // open() handles refusal and dial failures itself; a throw here is a connector
       // bug, so the stream dies with a truthful error rather than hanging.
       this.options.log(`[connector] stream ${frame.streamId} failed to open: ${errorMessage(error)}`);
+      stream.destroy(`open failure: ${errorMessage(error)}`);
+    });
+  }
+
+  /** Open a protocol-3 authenticated HTTP stream. The local token is mandatory on
+   *  this path and never appears in a tunnel frame. */
+  private onHttpStreamOpen(
+    session: Session,
+    frame: HttpStreamOpenFrame,
+    finish: (end: SessionEnd) => void,
+  ): void {
+    if (session.entries === null) {
+      this.options.log(
+        `[connector] dropping the tunnel: http-stream-open ${frame.streamId} arrived before the signed allowlist`,
+      );
+      session.socket.terminate();
+      finish({ kind: "dropped" });
+      return;
+    }
+    const config = this.options.config;
+    const stream = new GitLabHttpStream({
+      frame,
+      entries: session.entries,
+      profile: config.capabilityProfile,
+      gitlabBaseUrl: config.gitlabBaseUrl,
+      gitlabToken: config.gitlabToken,
+      timeoutMs: config.requestTimeoutMs,
+      send: (outbound) => this.send(session, outbound),
+      auditLog: this.options.auditLog,
+      onFinalized: (streamId) => session.streams.delete(streamId),
+      ...(this.options.gitlabCa !== undefined ? { ca: this.options.gitlabCa } : {}),
+    });
+    session.streams.set(frame.streamId, stream);
+    void stream.open().then(undefined, (error: unknown) => {
+      this.options.log(`[connector] HTTP stream ${frame.streamId} failed to open: ${errorMessage(error)}`);
       stream.destroy(`open failure: ${errorMessage(error)}`);
     });
   }

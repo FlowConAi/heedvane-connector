@@ -18,12 +18,11 @@ import {
   isStringRecord,
 } from "./guards.js";
 
-// Version 2 adds raw bidirectional byte streams (stream-open, stream-open-ack,
-// stream-data, stream-close, stream-window). A version 1 peer rejects unknown frame
-// types rather than ignoring them, so the version is the stream-capability signal: a
-// peer that understands streams advertises 2, and a mismatch is refused at hello with
-// both numbers named.
-export const PROTOCOL_VERSION = 2;
+// Version 3 adds authenticated streaming HTTP metadata around the existing flow-
+// controlled stream body frames. Older peers reject the new open and response frame
+// types, so the version remains the capability signal.
+export const PROTOCOL_VERSION = 3;
+export const MIN_SUPPORTED_PROTOCOL_VERSION = 2;
 
 // Lowest connector build the gateway will serve. A refusal names both the connector's
 // version and this floor; moving the floor is a support-window decision, never a silent
@@ -40,6 +39,8 @@ const FRAME_TYPE = {
   webhook: "webhook",
   streamOpen: "stream-open",
   streamOpenAck: "stream-open-ack",
+  httpStreamOpen: "http-stream-open",
+  httpStreamResponse: "http-stream-response",
   streamData: "stream-data",
   streamClose: "stream-close",
   streamWindow: "stream-window",
@@ -160,6 +161,27 @@ export interface StreamOpenAckFrame {
   readonly message?: string;
 }
 
+/** Opens one allowlisted HTTP exchange whose body travels in stream-data frames. The
+ *  connector supplies its local credential; a credential field is deliberately not
+ *  part of this frame. */
+export interface HttpStreamOpenFrame {
+  readonly type: "http-stream-open";
+  readonly streamId: string;
+  readonly method: HttpMethod;
+  readonly path: string;
+  readonly query: readonly QueryParam[];
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+/** Response metadata for an authenticated HTTP stream. Response body bytes follow in
+ *  stream-data frames and the directional stream-close ends them. */
+export interface HttpStreamResponseFrame {
+  readonly type: "http-stream-response";
+  readonly streamId: string;
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
 // Initial per-direction send credit for every byte stream, in bytes. A sender must not
 // have more unacked bytes in flight than its current credit; the receiver tops credit
 // up with stream-window frames as it consumes.
@@ -246,6 +268,8 @@ export type Frame =
   | WebhookFrame
   | StreamOpenFrame
   | StreamOpenAckFrame
+  | HttpStreamOpenFrame
+  | HttpStreamResponseFrame
   | StreamDataFrame
   | StreamCloseFrame
   | StreamWindowFrame
@@ -385,6 +409,26 @@ function streamOpenAckResultFailure(value: Record<string, unknown>): string | nu
   return null;
 }
 
+function httpStreamOpenFailure(value: Record<string, unknown>): string | null {
+  if (value.type !== FRAME_TYPE.httpStreamOpen) return "type must be http-stream-open";
+  if (!isNonEmptyString(value.streamId)) return "streamId must be a non-empty string";
+  if (!isHttpMethod(value.method)) return `method must be one of ${HTTP_METHODS.join(", ")}`;
+  if (!isNonEmptyString(value.path) || !isCanonicalRequestPath(value.path)) {
+    return "path must be an absolute canonical URL path without query, fragment, backslash, or dot segments";
+  }
+  if (!isQueryParamList(value.query)) return "query must be an array of [name, value] string pairs";
+  if (!isStringRecord(value.headers)) return "headers must be a record of string values";
+  return null;
+}
+
+function httpStreamResponseFailure(value: Record<string, unknown>): string | null {
+  if (value.type !== FRAME_TYPE.httpStreamResponse) return "type must be http-stream-response";
+  if (!isNonEmptyString(value.streamId)) return "streamId must be a non-empty string";
+  if (!isHttpStatus(value.status)) return "status must be an integer between 100 and 599";
+  if (!isStringRecord(value.headers)) return "headers must be a record of string values";
+  return null;
+}
+
 function streamDataFailure(value: Record<string, unknown>): string | null {
   if (value.type !== FRAME_TYPE.streamData) return "type must be stream-data";
   if (!isNonEmptyString(value.streamId)) return "streamId must be a non-empty string";
@@ -453,6 +497,8 @@ const FRAME_FAILURES: Readonly<Record<string, FrameFailure>> = {
   [FRAME_TYPE.webhook]: webhookFailure,
   [FRAME_TYPE.streamOpen]: streamOpenFailure,
   [FRAME_TYPE.streamOpenAck]: streamOpenAckFailure,
+  [FRAME_TYPE.httpStreamOpen]: httpStreamOpenFailure,
+  [FRAME_TYPE.httpStreamResponse]: httpStreamResponseFailure,
   [FRAME_TYPE.streamData]: streamDataFailure,
   [FRAME_TYPE.streamClose]: streamCloseFailure,
   [FRAME_TYPE.streamWindow]: streamWindowFailure,
@@ -491,6 +537,14 @@ export function isStreamOpenFrame(value: unknown): value is StreamOpenFrame {
 
 export function isStreamOpenAckFrame(value: unknown): value is StreamOpenAckFrame {
   return isRecord(value) && streamOpenAckFailure(value) === null;
+}
+
+export function isHttpStreamOpenFrame(value: unknown): value is HttpStreamOpenFrame {
+  return isRecord(value) && httpStreamOpenFailure(value) === null;
+}
+
+export function isHttpStreamResponseFrame(value: unknown): value is HttpStreamResponseFrame {
+  return isRecord(value) && httpStreamResponseFailure(value) === null;
 }
 
 export function isStreamDataFrame(value: unknown): value is StreamDataFrame {

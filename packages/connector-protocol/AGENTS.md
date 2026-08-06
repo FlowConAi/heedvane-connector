@@ -1,6 +1,6 @@
 # connector-protocol - connector wire contract
 
-> Last updated: 2026-07-29
+> Last updated: 2026-08-04
 
 Framed JSON protocol over the single mutually authenticated WebSocket between the
 connector gateway and the customer-run code-host connector, plus the signed request
@@ -19,8 +19,8 @@ Governing design: `code-host-connector-design-2026-07-24` (Heedvane monorepo, `d
   forces a protocol break exactly when the enterprise tier needs it.
 - **`PROTOCOL_VERSION` is the stream-capability signal.** Version 1 peers reject unknown
   frame types rather than ignore them, so byte streams (open/ack/data/close/window) are
-  version 2. Bump the version whenever a new frame cannot be silently dropped by old
-  peers, and say why in the README.
+  version 2. Authenticated HTTP streams are version 3. Bump the version whenever a new
+  frame cannot be silently dropped by old peers, and say why in the README.
 - **Byte-stream flow control is a contract, not a hint.** Send credit starts at
   `DEFAULT_STREAM_WINDOW_BYTES` per direction, `stream-window` tops it up additively,
   and `MAX_STREAM_DATA_CHUNK_BYTES` caps one frame's payload. Loosening either bound

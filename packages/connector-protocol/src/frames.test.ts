@@ -136,6 +136,22 @@ const STREAM_OPEN_ACK_FAIL: Frame = {
   message: "connection refused by 10.0.0.4:443",
 };
 
+const HTTP_STREAM_OPEN = {
+  type: "http-stream-open",
+  streamId: "git-http-1",
+  method: "GET",
+  path: "/acme/widget.git/info/refs",
+  query: [["service", "git-upload-pack"]],
+  headers: { accept: "application/x-git-upload-pack-advertisement" },
+} as unknown as Frame;
+
+const HTTP_STREAM_RESPONSE = {
+  type: "http-stream-response",
+  streamId: "git-http-1",
+  status: 200,
+  headers: { "content-type": "application/x-git-upload-pack-advertisement" },
+} as unknown as Frame;
+
 const STREAM_DATA: Frame = { type: "stream-data", streamId: "bulk-1", dataBase64: "AAAA" };
 
 const STREAM_CLOSE: Frame = { type: "stream-close", streamId: "bulk-1", reason: "done" };
@@ -210,6 +226,8 @@ const SAMPLE_FRAMES: readonly Frame[] = [
   STREAM_OPEN,
   STREAM_OPEN_ACK_OK,
   STREAM_OPEN_ACK_FAIL,
+  HTTP_STREAM_OPEN,
+  HTTP_STREAM_RESPONSE,
   STREAM_DATA,
   ...STREAM_CLOSE_SAMPLES,
   STREAM_CLOSE_NAKED,
@@ -252,13 +270,21 @@ test("sample set covers every declared closed-union member", () => {
   assert.deepEqual([...new Set(closeReasons)].sort(), [...STREAM_CLOSE_REASONS].sort());
 });
 
-test("protocol constants pin version 2, the support floor, and flow-control defaults", () => {
-  // Version 2 adds raw byte streams. Version 1 peers reject unknown frame types rather
-  // than ignore them, so the version is the stream-capability signal.
-  assert.equal(PROTOCOL_VERSION, 2);
+test("protocol constants pin version 3, the support floor, and flow-control defaults", () => {
+  // Version 3 adds authenticated streaming HTTP. Older peers reject its opening and
+  // response frames, so the protocol version remains the capability signal.
+  assert.equal(PROTOCOL_VERSION, 3);
   assert.match(MIN_SUPPORTED_CONNECTOR_VERSION, /^\d+\.\d+\.\d+/);
   assert.equal(DEFAULT_STREAM_WINDOW_BYTES, 256 * 1024);
   assert.equal(MAX_STREAM_DATA_CHUNK_BYTES, 64 * 1024);
+});
+
+test("authenticated HTTP stream frames carry only request metadata and response metadata", () => {
+  const request = decodeFrame(encodeFrame(HTTP_STREAM_OPEN));
+  assert.equal(request.type, "http-stream-open");
+  assert.equal("credential" in request, false);
+  const response = decodeFrame(encodeFrame(HTTP_STREAM_RESPONSE));
+  assert.equal(response.type, "http-stream-response");
 });
 
 test("client hello carries exactly one of enrollmentToken or credential", () => {

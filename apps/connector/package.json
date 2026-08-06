@@ -1,6 +1,6 @@
 {
   "name": "@heedvane/connector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Customer-run code-host connector: one outbound WebSocket tunnel to the Heedvane connector gateway, serving an allowlisted subset of GitLab API and git traffic plus local webhook intake.",
