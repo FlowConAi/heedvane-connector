@@ -154,12 +154,12 @@ function waitForExit(child: ChildProcess): Promise<number> {
   });
 }
 
-test("boot without HUB_ALLOWLIST_PUBLIC_KEY_FILE fetches the key from the hub and enrolls", async () => {
+test("GitLab 18.11 boot fetches the key from the hub and enrolls", async () => {
   const keys = generateKeyPairSync("ed25519");
   const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
   const gitlab = await startHttpStub((res) => {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"version":"19.2.0-ee"}');
+    res.end('{"version":"18.11.7-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: pem });
   const cli = bootCli({
@@ -182,12 +182,12 @@ test("boot without HUB_ALLOWLIST_PUBLIC_KEY_FILE fetches the key from the hub an
   }
 });
 
-test("boot refuses GitLab 18 before enrollment", async () => {
+test("boot refuses GitLab before 18.11 before enrollment", async () => {
   const keys = generateKeyPairSync("ed25519");
   const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
   const gitlab = await startHttpStub((res) => {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"version":"18.11.7-ee"}');
+    res.end('{"version":"18.10.9-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: pem });
   const cli = bootCli({
@@ -199,7 +199,7 @@ test("boot refuses GitLab 18 before enrollment", async () => {
   });
   try {
     assert.equal(await waitForExit(cli.child), 1);
-    assert.match(cli.output(), /requires GitLab 19\.0 or newer/);
+    assert.match(cli.output(), /requires GitLab 18\.11 or newer/);
     assert.equal(gateway.hellos.length, 0);
   } finally {
     cli.child.kill("SIGKILL");

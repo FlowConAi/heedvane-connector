@@ -14,7 +14,11 @@ import { allowlistKeyUrl, AllowlistKeyError, fetchAllowlistPublicKey } from "./a
 import { AuditLog } from "./audit-log.js";
 import { ConfigError, loadConfig, type ConnectorConfig } from "./config.js";
 import { persistCredentialFile } from "./credential-file.js";
-import { GitLabVersionError, verifyGitLabVersion } from "./gitlab-version.js";
+import {
+  GitLabVersionError,
+  verifyGitLabVersion,
+  webhookVerificationSchemeForGitLabVersion,
+} from "./gitlab-version.js";
 import { ConnectorTunnel } from "./tunnel.js";
 import { CONNECTOR_VERSION } from "./version.js";
 import { WebhookListener } from "./webhook-listener.js";
@@ -114,6 +118,7 @@ async function main(): Promise<number> {
     throw error;
   }
   log(`[connector] verified supported GitLab ${gitlabVersion} at ${config.gitlabBaseUrl}`);
+  const webhookVerificationScheme = webhookVerificationSchemeForGitLabVersion(gitlabVersion);
   const allowlistPublicKey = await resolveAllowlistPublicKey(config, gatewayCa);
   const auditLog = new AuditLog();
   const tunnel = new ConnectorTunnel({
@@ -130,6 +135,7 @@ async function main(): Promise<number> {
     host: config.webhookListenHost,
     port: config.webhookListenPort,
     secret: config.webhookSecret,
+    verificationScheme: webhookVerificationScheme,
     ackTimeoutMs: 15_000,
     maxBodyBytes: 10 * 1024 * 1024,
     deliver: (frame) => tunnel.deliverWebhook(frame),

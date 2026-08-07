@@ -41,9 +41,9 @@ Wire contract: [`@heedvane/connector-protocol`](../../packages/connector-protoco
   applies the signed allowlist and local capability profile, strips caller auth,
   injects `GITLAB_TOKEN`, and streams only smart-HTTP upload-pack traffic. Bodies and
   tokens never enter connector logs.
-- **The customer connector requires GitLab 19+.** Boot authenticates
-  `GET /api/v4/version` before enrollment and refuses an unreadable version or a
-  major below 19. Local webhooks require the GitLab 19 `whsec_` Standard Webhooks
-  HMAC; plaintext `X-Gitlab-Token` and signature-presence fallbacks stay absent.
+- **The customer connector requires GitLab 18.11+.** Boot authenticates
+  `GET /api/v4/version` before enrollment. That exact version selects one scheme:
+  constant-time `X-Gitlab-Token` for 18.11, Standard Webhooks HMAC for 19+.
+  Never infer a scheme from header presence or fall back to the other scheme.
 - Tests are `node:test` via `tsx` against in-process stub servers (stub gateway, stub
   GitLab, stub CONNECT proxy): `pnpm --filter @heedvane/connector test`.

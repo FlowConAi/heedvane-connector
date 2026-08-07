@@ -170,6 +170,12 @@ const WEBHOOK_SIGNING_TOKEN: Frame = {
   verificationScheme: "signing-token",
 };
 
+const WEBHOOK_SECRET_TOKEN: Frame = {
+  ...WEBHOOK_SIGNING_TOKEN,
+  deliveryId: "delivery-18",
+  verificationScheme: "secret-token",
+};
+
 const PING: Frame = { type: "ping", nonce: "nonce-1" };
 const PONG: Frame = { type: "pong", nonce: "nonce-1" };
 
@@ -212,6 +218,7 @@ const SAMPLE_FRAMES: readonly Frame[] = [
   ...STREAM_ERROR_SAMPLES,
   ...BYTE_STREAM_ERROR_SAMPLES,
   WEBHOOK_SIGNING_TOKEN,
+  WEBHOOK_SECRET_TOKEN,
   STREAM_OPEN,
   STREAM_OPEN_ACK_OK,
   STREAM_OPEN_ACK_FAIL,
@@ -334,6 +341,7 @@ test("frame guards narrow by discriminator", () => {
   assert.ok(isRequestFrame(REQUEST_WITH_CREDENTIAL));
   assert.ok(!isRequestFrame(RESPONSE_WITH_BODY));
   assert.ok(isWebhookFrame(WEBHOOK_SIGNING_TOKEN));
+  assert.ok(isWebhookFrame(WEBHOOK_SECRET_TOKEN));
   assert.ok(!isWebhookFrame(PING));
   assert.ok(!isRequestFrame("a string is not a frame"));
   assert.ok(isStreamOpenFrame(STREAM_OPEN));
@@ -459,7 +467,6 @@ test("invalid frames are rejected", () => {
 
   assertInvalid({ type: "stream-error", streamId: "s", requestId: "r", code: "nope", message: "m" }, /code/);
 
-  assertInvalid({ type: "webhook", streamId: "s", deliveryId: "d", event: "Push Hook", headers: {}, bodyBase64: "e30=", verificationScheme: "secret-token" }, /verificationScheme/);
   assertInvalid({ type: "webhook", streamId: "s", deliveryId: "d", event: "Push Hook", headers: {}, bodyBase64: "e30=", verificationScheme: "md5" }, /verificationScheme/);
 
   assertInvalid({ type: "ping" }, /nonce/);
