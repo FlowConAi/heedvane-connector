@@ -1,6 +1,6 @@
 # connector - customer-run code-host connector
 
-> Last updated: 2026-08-04
+> Last updated: 2026-08-07
 
 The customer-side half of the connector tunnel: one outbound WebSocket to the api's
 connector gateway, serving the signed-allowlist subset of GitLab traffic plus local
@@ -41,5 +41,9 @@ Wire contract: [`@heedvane/connector-protocol`](../../packages/connector-protoco
   applies the signed allowlist and local capability profile, strips caller auth,
   injects `GITLAB_TOKEN`, and streams only smart-HTTP upload-pack traffic. Bodies and
   tokens never enter connector logs.
+- **The customer connector requires GitLab 19+.** Boot authenticates
+  `GET /api/v4/version` before enrollment and refuses an unreadable version or a
+  major below 19. Local webhooks require the GitLab 19 `whsec_` Standard Webhooks
+  HMAC; plaintext `X-Gitlab-Token` and signature-presence fallbacks stay absent.
 - Tests are `node:test` via `tsx` against in-process stub servers (stub gateway, stub
   GitLab, stub CONNECT proxy): `pnpm --filter @heedvane/connector test`.
