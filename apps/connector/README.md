@@ -19,11 +19,10 @@ with reasons.
 
 ## Run with Docker (the normal path)
 
-Build from the repository root (the connector is a pnpm workspace app, so the build
-context must be the repo root; the root `.dockerignore` governs it):
+Pull the published multi-architecture image from GHCR:
 
 ```sh
-docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.0 .
+docker pull ghcr.io/flowconai/heedvane-connector:0.2.0
 ```
 
 The hub's enrollment dialog (`POST /api/code-hosts/gitlab/connector-enrollments` in the
@@ -41,7 +40,7 @@ docker run --restart unless-stopped --name heedvane-connector \
   -e "HEEDVANE_CONNECTOR_NAME=Zurich office" \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
   -p 8080:8080 \
-  heedvane/connector:0.2.0
+  ghcr.io/flowconai/heedvane-connector:0.2.0
 ```
 
 First boot enrolls: the connector exchanges the single-use enrollment token for a
@@ -59,7 +58,7 @@ the enrollment token itself cannot be replayed.
 | `HEEDVANE_CONNECTOR_CREDENTIAL` | restarts | | Long-lived credential, if not using the file below. |
 | `HEEDVANE_CREDENTIAL_FILE` | recommended | `/var/lib/heedvane-connector/credential` in Docker | Path the credential is read from and persisted to. Mount its parent directory. Resolution order: env credential, then this file when it holds one, then the enrollment token. A persisted credential therefore wins over the still-configured consumed token on every restart, and a missing file on first boot simply means enroll. To force a fresh enrollment, delete the file. |
 | `GITLAB_BASE_URL` | yes | | http(s) origin of the GitLab instance this connector serves. |
-| `GITLAB_TOKEN` | recommended | | Local token injected when a request arrives without a credential. This is the normal private GitLab checkout path, and the token never leaves the customer network. Legacy hub-held credentials remain supported during migration. |
+| `GITLAB_TOKEN` | yes | | Local API token used to verify the GitLab version at boot and injected into credential-less requests. The token never leaves the customer network. |
 | `HEEDVANE_CONNECTOR_NAME` | no | | Display name reported to the hub (`CONNECTOR_NAME` alias). |
 | `HEEDVANE_CAPABILITY_PROFILE` | no | `read-only` | `read-only` or `read-write` (`CAPABILITY_PROFILE` alias). The signed allowlist may only ever be a subset of this profile: anything outside it is refused with `profile-refused`. |
 | `HUB_ALLOWLIST_PUBLIC_KEY_FILE` | no | fetched | Ed25519 public key (PEM) matching the gateway's signing key. When unset, the connector fetches it at boot from the hub at `<gateway origin>/connector/allowlist-public-key` (derived from `HEEDVANE_GATEWAY_URL`, through the same proxy and gateway CA settings as the tunnel) and logs the fetch. A fetch failure or a malformed PEM is a boot error naming the URL tried; verification is never skipped. Set the file only when the hub cannot be reached for the fetch. |
@@ -67,7 +66,7 @@ the enrollment token itself cannot be replayed.
 | `HEEDVANE_GATEWAY_CA_FILE` | no | | CA bundle (PEM) for the GATEWAY connection, for an egress proxy that re-signs TLS. |
 | `GITLAB_CA_FILE` | no | | CA bundle (PEM) for the GitLab connection. Deliberately separate from the gateway CA: two trust stores, two knobs. |
 | `WEBHOOK_LISTEN_HOST` / `WEBHOOK_LISTEN_PORT` | no | `0.0.0.0:8080` | Where the local webhook listener binds. |
-| `WEBHOOK_SECRET` | for webhooks | | Shared secret for local webhook verification (see below). Without it the listener refuses every delivery with 503 rather than accepting unverified payloads. |
+| `WEBHOOK_SECRET` | for webhooks | | GitLab 19+ `whsec_` signing token for local HMAC verification (see below). Without it, or with a classic secret, the listener refuses every delivery with 503 rather than accepting an unverified payload. |
 | `CONNECTOR_ADVERTISE_HOST` | no | OS hostname | Hostname used in the `webhookBaseUrl` reported to the hub; set it to the address the GitLab server uses to reach this connector. |
 | `GITLAB_REQUEST_TIMEOUT_MS` | no | `25000` | Per-request budget to the local GitLab. Kept below the gateway's 30s so a slow GitLab reports `upstream-timeout` instead of a generic tunnel timeout. |
 
@@ -77,12 +76,12 @@ Point the GitLab instance's webhook at `http://<connector-host>:<port>/webhooks/
 (the exact URL the connector reports as `webhookBaseUrl`). Verification happens locally
 before anything crosses the tunnel:
 
-- GitLab 18.x (`X-Gitlab-Token`): constant-time comparison against `WEBHOOK_SECRET`,
-  reported upstream as `verificationScheme: secret-token`.
-- GitLab 19+ (`webhook-signature`): when `WEBHOOK_SECRET` starts with `whsec_`, the
-  Standard Webhooks HMAC is verified (with timestamp tolerance), reported as
-  `signing-token`. With a classic secret, header presence plus a parseable JSON body is
-  accepted.
+- GitLab 19+ (`webhook-signature`): `WEBHOOK_SECRET` must be the `whsec_` signing
+  token returned by GitLab. The connector verifies the Standard Webhooks HMAC and
+  timestamp before forwarding the delivery as `verificationScheme: signing-token`.
+- GitLab 18.x `X-Gitlab-Token` deliveries and classic secrets are refused. The
+  connector checks `/api/v4/version` before enrollment and requires GitLab 19.0 or
+  newer.
 
 The connector answers the local GitLab with 200 only after the gateway ack confirms the
 hub queued the delivery; a hub refusal is mirrored with its real status, and a missing

@@ -14,6 +14,7 @@ import { allowlistKeyUrl, AllowlistKeyError, fetchAllowlistPublicKey } from "./a
 import { AuditLog } from "./audit-log.js";
 import { ConfigError, loadConfig, type ConnectorConfig } from "./config.js";
 import { persistCredentialFile } from "./credential-file.js";
+import { GitLabVersionError, verifyGitLabVersion } from "./gitlab-version.js";
 import { ConnectorTunnel } from "./tunnel.js";
 import { CONNECTOR_VERSION } from "./version.js";
 import { WebhookListener } from "./webhook-listener.js";
@@ -95,6 +96,24 @@ async function main(): Promise<number> {
   const config = loadConfig({ env: process.env });
   const gatewayCa = readOptionalFile(config.gatewayCaFile, "HEEDVANE_GATEWAY_CA_FILE");
   const gitlabCa = readOptionalFile(config.gitlabCaFile, "GITLAB_CA_FILE");
+  if (config.gitlabToken === null) {
+    throw new ConfigError(
+      "GITLAB_TOKEN is required for a self-managed GitLab connector so it can verify the supported GitLab version and serve credential-local requests.",
+    );
+  }
+  let gitlabVersion: string;
+  try {
+    gitlabVersion = await verifyGitLabVersion({
+      baseUrl: config.gitlabBaseUrl,
+      token: config.gitlabToken,
+      timeoutMs: config.requestTimeoutMs,
+      ...(gitlabCa !== undefined ? { ca: gitlabCa } : {}),
+    });
+  } catch (error) {
+    if (error instanceof GitLabVersionError) throw new ConfigError(error.message);
+    throw error;
+  }
+  log(`[connector] verified supported GitLab ${gitlabVersion} at ${config.gitlabBaseUrl}`);
   const allowlistPublicKey = await resolveAllowlistPublicKey(config, gatewayCa);
   const auditLog = new AuditLog();
   const tunnel = new ConnectorTunnel({

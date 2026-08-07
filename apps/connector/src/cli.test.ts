@@ -159,13 +159,14 @@ test("boot without HUB_ALLOWLIST_PUBLIC_KEY_FILE fetches the key from the hub an
   const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
   const gitlab = await startHttpStub((res) => {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"version":"18.11.7-ee"}');
+    res.end('{"version":"19.2.0-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: pem });
   const cli = bootCli({
     HEEDVANE_GATEWAY_URL: `ws://127.0.0.1:${gateway.port}/connector-gateway`,
     HEEDVANE_ENROLLMENT_TOKEN: "boot-test-token",
     GITLAB_BASE_URL: `http://127.0.0.1:${gitlab.port}`,
+    GITLAB_TOKEN: "gitlab-api-token",
     WEBHOOK_LISTEN_PORT: "18931",
   });
   try {
@@ -181,12 +182,38 @@ test("boot without HUB_ALLOWLIST_PUBLIC_KEY_FILE fetches the key from the hub an
   }
 });
 
-test("boot with a token and a MISSING credential file enrolls and persists the issued credential 0600", async () => {
+test("boot refuses GitLab 18 before enrollment", async () => {
   const keys = generateKeyPairSync("ed25519");
   const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
   const gitlab = await startHttpStub((res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end('{"version":"18.11.7-ee"}');
+  });
+  const gateway = await startGatewayStub({ keys, keyPem: pem });
+  const cli = bootCli({
+    HEEDVANE_GATEWAY_URL: `ws://127.0.0.1:${gateway.port}/connector-gateway`,
+    HEEDVANE_ENROLLMENT_TOKEN: "boot-test-token",
+    GITLAB_BASE_URL: `http://127.0.0.1:${gitlab.port}`,
+    GITLAB_TOKEN: "gitlab-api-token",
+    WEBHOOK_LISTEN_PORT: "18935",
+  });
+  try {
+    assert.equal(await waitForExit(cli.child), 1);
+    assert.match(cli.output(), /requires GitLab 19\.0 or newer/);
+    assert.equal(gateway.hellos.length, 0);
+  } finally {
+    cli.child.kill("SIGKILL");
+    await gitlab.close();
+    await gateway.close();
+  }
+});
+
+test("boot with a token and a MISSING credential file enrolls and persists the issued credential 0600", async () => {
+  const keys = generateKeyPairSync("ed25519");
+  const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
+  const gitlab = await startHttpStub((res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"version":"19.2.0-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: pem });
   const stateDir = mkdtempSync(join(tmpdir(), "connector-credential-boot-"));
@@ -196,6 +223,7 @@ test("boot with a token and a MISSING credential file enrolls and persists the i
     HEEDVANE_ENROLLMENT_TOKEN: "boot-test-token",
     HEEDVANE_CREDENTIAL_FILE: credentialPath,
     GITLAB_BASE_URL: `http://127.0.0.1:${gitlab.port}`,
+    GITLAB_TOKEN: "gitlab-api-token",
     WEBHOOK_LISTEN_PORT: "18933",
   });
   try {
@@ -218,7 +246,7 @@ test("the systemd env shape survives a restart: boot two resumes with the persis
   const pem = `${keys.publicKey.export({ type: "spki", format: "pem" })}`;
   const gitlab = await startHttpStub((res) => {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"version":"18.11.7-ee"}');
+    res.end('{"version":"19.2.0-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: pem });
   const stateDir = mkdtempSync(join(tmpdir(), "connector-credential-restart-"));
@@ -228,6 +256,7 @@ test("the systemd env shape survives a restart: boot two resumes with the persis
     HEEDVANE_ENROLLMENT_TOKEN: "boot-test-token",
     HEEDVANE_CREDENTIAL_FILE: credentialPath,
     GITLAB_BASE_URL: `http://127.0.0.1:${gitlab.port}`,
+    GITLAB_TOKEN: "gitlab-api-token",
     WEBHOOK_LISTEN_PORT: "18934",
   };
   try {
@@ -254,8 +283,8 @@ test("the systemd env shape survives a restart: boot two resumes with the persis
 test("a failing key fetch exits 1 with the URL it tried, never silently skipping verification", async () => {
   const keys = generateKeyPairSync("ed25519");
   const gitlab = await startHttpStub((res) => {
-    res.writeHead(200);
-    res.end("{}");
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"version":"19.2.0-ee"}');
   });
   const gateway = await startGatewayStub({ keys, keyPem: null });
   const keyUrl = `${gateway.origin}/connector/allowlist-public-key`;
@@ -263,6 +292,7 @@ test("a failing key fetch exits 1 with the URL it tried, never silently skipping
     HEEDVANE_GATEWAY_URL: `ws://127.0.0.1:${gateway.port}/connector-gateway`,
     HEEDVANE_ENROLLMENT_TOKEN: "boot-test-token",
     GITLAB_BASE_URL: `http://127.0.0.1:${gitlab.port}`,
+    GITLAB_TOKEN: "gitlab-api-token",
     WEBHOOK_LISTEN_PORT: "18932",
   });
   try {

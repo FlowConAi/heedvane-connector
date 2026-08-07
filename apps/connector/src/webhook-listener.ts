@@ -1,6 +1,6 @@
 // The local webhook intake: the customer GitLab POSTs deliveries here, inside the
 // customer network. Verification happens locally before anything crosses the tunnel
-// (X-Gitlab-Token on GitLab 18.x, Standard Webhooks HMAC on 19+), and the local 200 is
+// with GitLab 19's Standard Webhooks HMAC, and the local 200 is
 // sent only after the gateway ack, so GitLab's retry semantics still reflect whether
 // the hub actually queued the delivery. Bodies are never logged or persisted; the
 // audit record carries delivery metadata only (the connector is a pipe).
@@ -38,16 +38,12 @@ const SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300;
 const HEADER = {
   event: "x-gitlab-event",
   eventUuid: "x-gitlab-event-uuid",
-  token: "x-gitlab-token",
   webhookId: "webhook-id",
   webhookTimestamp: "webhook-timestamp",
   webhookSignature: "webhook-signature",
 } as const;
 
-const SCHEME = {
-  secretToken: "secret-token",
-  signingToken: "signing-token",
-} as const satisfies Record<string, WebhookVerificationScheme>;
+const SIGNING_SCHEME = "signing-token" satisfies WebhookVerificationScheme;
 
 type Verification =
   | { readonly ok: true; readonly scheme: WebhookVerificationScheme }
@@ -62,13 +58,6 @@ function headerText(message: IncomingMessage, name: string): string | null {
   if (typeof value === "string" && value.length > 0) return value;
   if (Array.isArray(value) && typeof value[0] === "string" && value[0].length > 0) return value[0];
   return null;
-}
-
-function secretTokenMatches(presented: string, expected: string): boolean {
-  const presentedBytes = Buffer.from(presented, "utf8");
-  const expectedBytes = Buffer.from(expected, "utf8");
-  if (presentedBytes.length !== expectedBytes.length) return false;
-  return timingSafeEqual(presentedBytes, expectedBytes);
 }
 
 function signatureMatches(candidate: string, expected: Buffer): boolean {
@@ -101,34 +90,23 @@ function verifyStandardWebhook(input: {
   const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${input.body.toString("utf8")}`).digest();
   const candidates = signatureHeader.split(/\s+/);
   if (candidates.some((candidate) => signatureMatches(candidate, expected))) {
-    return { ok: true, scheme: SCHEME.signingToken };
+    return { ok: true, scheme: SIGNING_SCHEME };
   }
   return { ok: false, status: 401, reason: "the webhook signature does not match" };
 }
 
 function verifyDelivery(message: IncomingMessage, body: Buffer, secret: string | null): Verification {
-  const signatureHeader = headerText(message, HEADER.webhookSignature);
-  if (signatureHeader !== null && secret?.startsWith(SIGNING_SECRET_PREFIX)) {
-    return verifyStandardWebhook({ secret, message, body });
-  }
-  if (signatureHeader !== null) {
-    // A 19+ instance but a classic secret: presence of the signing header plus a
-    // parseable JSON body is the documented acceptance bar for this combination.
-    try {
-      JSON.parse(body.toString("utf8"));
-    } catch (error) {
-      return { ok: false, status: 400, reason: `the delivery body is not valid JSON: ${errorMessage(error)}` };
-    }
-    return { ok: true, scheme: SCHEME.signingToken };
-  }
   if (secret === null) {
     return { ok: false, status: 503, reason: "WEBHOOK_SECRET is not configured on the connector" };
   }
-  const presented = headerText(message, HEADER.token);
-  if (presented === null || !secretTokenMatches(presented, secret)) {
-    return { ok: false, status: 401, reason: "the X-Gitlab-Token does not match" };
+  if (!secret.startsWith(SIGNING_SECRET_PREFIX)) {
+    return {
+      ok: false,
+      status: 503,
+      reason: "WEBHOOK_SECRET must be the whsec_ signing token returned by GitLab 19 or newer",
+    };
   }
-  return { ok: true, scheme: SCHEME.secretToken };
+  return verifyStandardWebhook({ secret, message, body });
 }
 
 function readBody(message: IncomingMessage, maxBodyBytes: number): Promise<Buffer> {
@@ -244,7 +222,7 @@ export class WebhookListener {
       this.options.auditLog.recordWebhook({
         deliveryId: headerText(request, HEADER.eventUuid) ?? "unknown",
         event,
-        verificationScheme: headerText(request, HEADER.webhookSignature) === null ? SCHEME.secretToken : SCHEME.signingToken,
+        verificationScheme: SIGNING_SCHEME,
         decision: AUDIT_DECISION.refused,
         reason: verification.reason,
       });

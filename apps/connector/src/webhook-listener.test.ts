@@ -7,7 +7,8 @@ import type { WebhookFrame } from "@heedvane/connector-protocol";
 import { AuditLog, type AuditLine } from "./audit-log.js";
 import { WebhookListener, type WebhookAck } from "./webhook-listener.js";
 
-const SECRET = "gitlab-hook-secret";
+const SIGNING_KEY = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");
+const SECRET = `whsec_${SIGNING_KEY.toString("base64")}`;
 
 interface Harness {
   listener: WebhookListener;
@@ -65,31 +66,35 @@ function buildOptions(overrides: Partial<{
   };
 }
 
-function hookHeaders(overrides: Record<string, string> = {}): Record<string, string> {
+function hookHeaders(body = "{}", overrides: Record<string, string> = {}): Record<string, string> {
+  const timestamp = String(Math.floor(Date.now() / 1000));
   return {
     "content-type": "application/json",
     "x-gitlab-event": "Push Hook",
     "x-gitlab-event-uuid": "uuid-1234",
-    "x-gitlab-token": SECRET,
+    "webhook-id": "uuid-1234",
+    "webhook-timestamp": timestamp,
+    "webhook-signature": standardWebhookSignature({ id: "uuid-1234", timestamp, body, key: SIGNING_KEY }),
     ...overrides,
   };
 }
 
-test("a matching X-Gitlab-Token is accepted and forwarded as a secret-token webhook frame", async () => {
+test("a verified GitLab 19 signing token is forwarded as a signing-token webhook frame", async () => {
   const harness = await startListener();
   try {
+    const body = JSON.stringify({ object_kind: "push" });
     const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: hookHeaders(),
-      body: JSON.stringify({ object_kind: "push" }),
+      headers: hookHeaders(body),
+      body,
     });
     assert.equal(response.status, 200);
     assert.equal(harness.deliveries.length, 1);
     const frame = harness.deliveries[0];
-    assert.equal(frame?.verificationScheme, "secret-token");
+    assert.equal(frame?.verificationScheme, "signing-token");
     assert.equal(frame?.event, "Push Hook");
     assert.equal(frame?.deliveryId, "uuid-1234");
-    assert.equal(frame?.headers["x-gitlab-token"], SECRET);
+    assert.equal(frame?.headers["webhook-id"], "uuid-1234");
     assert.equal(Buffer.from(frame?.bodyBase64 ?? "", "base64").toString("utf8"), '{"object_kind":"push"}');
     assert.equal(harness.auditLines.at(-1)?.decision, "accepted");
   } finally {
@@ -121,12 +126,16 @@ test("the local GitLab gets its 200 only after the gateway ack arrives", async (
   }
 });
 
-test("a wrong X-Gitlab-Token is refused and never forwarded", async () => {
+test("a GitLab 18 X-Gitlab-Token delivery is refused and never forwarded", async () => {
   const harness = await startListener();
   try {
     const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: hookHeaders({ "x-gitlab-token": "wrong-secret" }),
+      headers: {
+        "content-type": "application/json",
+        "x-gitlab-event": "Push Hook",
+        "x-gitlab-token": "classic-secret",
+      },
       body: "{}",
     });
     assert.equal(response.status, 401);
@@ -186,8 +195,7 @@ test("a missing ack inside the budget is a 504, not a hung connection", async ()
 });
 
 function signingSecret(): { secret: string; key: Buffer } {
-  const key = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");
-  return { secret: `whsec_${key.toString("base64")}`, key };
+  return { secret: SECRET, key: SIGNING_KEY };
 }
 
 function standardWebhookSignature(input: { id: string; timestamp: string; body: string; key: Buffer }): string {
@@ -205,7 +213,7 @@ test("GitLab 19 signing-token: a valid Standard Webhooks HMAC is accepted", asyn
     const signature = standardWebhookSignature({ id: "msg-1", timestamp, body, key });
     const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: hookHeaders({
+      headers: hookHeaders(body, {
         "webhook-id": "msg-1",
         "webhook-timestamp": timestamp,
         "webhook-signature": signature,
@@ -228,7 +236,7 @@ test("GitLab 19 signing-token: a tampered body fails verification", async () => 
     const signature = standardWebhookSignature({ id: "msg-1", timestamp, body: "original", key });
     const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: hookHeaders({
+      headers: hookHeaders("tampered", {
         "webhook-id": "msg-1",
         "webhook-timestamp": timestamp,
         "webhook-signature": signature,
@@ -242,15 +250,16 @@ test("GitLab 19 signing-token: a tampered body fails verification", async () => 
   }
 });
 
-test("a signing header with a non-whsec secret falls back to presence plus JSON parse", async () => {
-  const harness = await startListener();
+test("a signing header with a non-whsec secret is refused", async () => {
+  const harness = await startListener({ secret: "classic-secret" });
   try {
-    const headers = hookHeaders({ "webhook-signature": "v1,whatever" });
-    const ok = await fetch(`${harness.baseUrl}/webhooks/gitlab`, { method: "POST", headers, body: "{}" });
-    assert.equal(ok.status, 200);
-    const bad = await fetch(`${harness.baseUrl}/webhooks/gitlab`, { method: "POST", headers, body: "not json" });
-    assert.equal(bad.status, 400);
-    assert.equal(harness.deliveries.length, 1);
+    const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
+      method: "POST",
+      headers: hookHeaders(),
+      body: "{}",
+    });
+    assert.equal(response.status, 503);
+    assert.equal(harness.deliveries.length, 0);
   } finally {
     await harness.close();
   }
@@ -265,9 +274,11 @@ test("other paths, missing event headers, and oversize bodies are refused", asyn
       body: "{}",
     });
     assert.equal(wrongPath.status, 404);
+    const noEventHeaders = hookHeaders();
+    delete noEventHeaders["x-gitlab-event"];
     const noEvent = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-gitlab-token": SECRET },
+      headers: noEventHeaders,
       body: "{}",
     });
     assert.equal(noEvent.status, 400);
@@ -286,10 +297,11 @@ test("other paths, missing event headers, and oversize bodies are refused", asyn
 test("the webhook audit record never carries the delivery body", async () => {
   const harness = await startListener();
   try {
+    const body = '{"secret_field":"DO NOT LOG"}';
     await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
-      headers: hookHeaders(),
-      body: '{"secret_field":"DO NOT LOG"}',
+      headers: hookHeaders(body),
+      body,
     });
     assert.ok(!JSON.stringify(harness.auditLines).includes("DO NOT LOG"), "audit log leaked a webhook body");
   } finally {
