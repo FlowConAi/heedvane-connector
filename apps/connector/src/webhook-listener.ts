@@ -1,6 +1,7 @@
 // The local webhook intake: the customer GitLab POSTs deliveries here, inside the
 // customer network. Verification happens locally before anything crosses the tunnel
-// with GitLab 19's Standard Webhooks HMAC, and the local 200 is
+// with the version-selected scheme (X-Gitlab-Token on 18.11, Standard Webhooks
+// HMAC on 19+), and the local 200 is
 // sent only after the gateway ack, so GitLab's retry semantics still reflect whether
 // the hub actually queued the delivery. Bodies are never logged or persisted; the
 // audit record carries delivery metadata only (the connector is a pipe).
@@ -24,6 +25,7 @@ export interface WebhookListenerOptions {
   readonly host: string;
   readonly port: number;
   readonly secret: string | null;
+  readonly verificationScheme: WebhookVerificationScheme;
   readonly ackTimeoutMs: number;
   readonly maxBodyBytes: number;
   readonly deliver: (frame: WebhookFrame) => Promise<WebhookAck>;
@@ -41,9 +43,11 @@ const HEADER = {
   webhookId: "webhook-id",
   webhookTimestamp: "webhook-timestamp",
   webhookSignature: "webhook-signature",
+  token: "x-gitlab-token",
 } as const;
 
 const SIGNING_SCHEME = "signing-token" satisfies WebhookVerificationScheme;
+const SECRET_SCHEME = "secret-token" satisfies WebhookVerificationScheme;
 
 type Verification =
   | { readonly ok: true; readonly scheme: WebhookVerificationScheme }
@@ -66,6 +70,12 @@ function signatureMatches(candidate: string, expected: Buffer): boolean {
   const presented = Buffer.from(candidate.slice(VERSION_PREFIX.length), "base64");
   if (presented.length !== expected.length) return false;
   return timingSafeEqual(presented, expected);
+}
+
+function secretTokenMatches(presented: string, expected: string): boolean {
+  const presentedBytes = Buffer.from(presented, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  return presentedBytes.length === expectedBytes.length && timingSafeEqual(presentedBytes, expectedBytes);
 }
 
 /** GitLab 19 signs with the Standard Webhooks scheme: HMAC-SHA256 over
@@ -95,9 +105,21 @@ function verifyStandardWebhook(input: {
   return { ok: false, status: 401, reason: "the webhook signature does not match" };
 }
 
-function verifyDelivery(message: IncomingMessage, body: Buffer, secret: string | null): Verification {
+function verifyDelivery(
+  message: IncomingMessage,
+  body: Buffer,
+  secret: string | null,
+  verificationScheme: WebhookVerificationScheme,
+): Verification {
   if (secret === null) {
     return { ok: false, status: 503, reason: "WEBHOOK_SECRET is not configured on the connector" };
+  }
+  if (verificationScheme === SECRET_SCHEME) {
+    const presented = headerText(message, HEADER.token);
+    if (presented === null || !secretTokenMatches(presented, secret)) {
+      return { ok: false, status: 401, reason: "the X-Gitlab-Token does not match" };
+    }
+    return { ok: true, scheme: SECRET_SCHEME };
   }
   if (!secret.startsWith(SIGNING_SECRET_PREFIX)) {
     return {
@@ -217,12 +239,17 @@ export class WebhookListener {
       respond(response, 400, `missing ${HEADER.event} header`);
       return;
     }
-    const verification = verifyDelivery(request, body, this.options.secret);
+    const verification = verifyDelivery(
+      request,
+      body,
+      this.options.secret,
+      this.options.verificationScheme,
+    );
     if (!verification.ok) {
       this.options.auditLog.recordWebhook({
         deliveryId: headerText(request, HEADER.eventUuid) ?? "unknown",
         event,
-        verificationScheme: SIGNING_SCHEME,
+        verificationScheme: this.options.verificationScheme,
         decision: AUDIT_DECISION.refused,
         reason: verification.reason,
       });

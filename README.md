@@ -29,7 +29,7 @@ The wire contract: [`packages/connector-protocol/README.md`](packages/connector-
 ## Quickstart
 
 ```sh
-docker pull ghcr.io/flowconai/heedvane-connector:0.2.1
+docker pull ghcr.io/flowconai/heedvane-connector:0.2.2
 ```
 
 Heedvane's enrollment dialog emits the exact `docker run` command for your
@@ -45,7 +45,7 @@ docker run --restart unless-stopped --name heedvane-connector \
   -e GITLAB_TOKEN=<GitLab token with api scope> \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
   -p 8080:8080 \
-  ghcr.io/flowconai/heedvane-connector:0.2.1
+  ghcr.io/flowconai/heedvane-connector:0.2.2
 ```
 
 First boot exchanges the single-use enrollment token for a long-lived credential

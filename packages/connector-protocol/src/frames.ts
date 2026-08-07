@@ -218,9 +218,10 @@ export interface StreamWindowFrame {
   readonly bytes: number;
 }
 
-// Customer connectors support GitLab 19+ Standard Webhooks HMAC only. The plaintext
-// X-Gitlab-Token mechanism is not a supported connector trust boundary.
-export const WEBHOOK_VERIFICATION_SCHEMES = ["signing-token"] as const;
+// The connector verifies the exact scheme selected from the authenticated GitLab
+// version: classic X-Gitlab-Token for supported 18.x instances, Standard Webhooks
+// HMAC for 19+. The hub binds the reported scheme to the stored subscription.
+export const WEBHOOK_VERIFICATION_SCHEMES = ["secret-token", "signing-token"] as const;
 export type WebhookVerificationScheme = (typeof WEBHOOK_VERIFICATION_SCHEMES)[number];
 
 export interface WebhookFrame {
@@ -463,7 +464,7 @@ function webhookFailure(value: Record<string, unknown>): string | null {
   if (!isStringRecord(value.headers)) return "headers must be a record of string values";
   if (!isBase64String(value.bodyBase64)) return "bodyBase64 must be canonical base64";
   if (!isOneOf(value.verificationScheme, WEBHOOK_VERIFICATION_SCHEMES)) {
-    return "verificationScheme must be signing-token";
+    return "verificationScheme must be secret-token or signing-token";
   }
   return null;
 }

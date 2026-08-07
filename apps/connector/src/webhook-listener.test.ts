@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
 
-import type { WebhookFrame } from "@heedvane/connector-protocol";
+import type { WebhookFrame, WebhookVerificationScheme } from "@heedvane/connector-protocol";
 
 import { AuditLog, type AuditLine } from "./audit-log.js";
 import { WebhookListener, type WebhookAck } from "./webhook-listener.js";
@@ -54,13 +54,22 @@ async function startListener(overrides: Partial<Parameters<typeof buildOptions>[
 
 function buildOptions(overrides: Partial<{
   secret: string | null;
+  verificationScheme: WebhookVerificationScheme;
   ackTimeoutMs: number;
   maxBodyBytes: number;
-}>): { host: string; port: number; secret: string | null; ackTimeoutMs: number; maxBodyBytes: number } {
+}>): {
+  host: string;
+  port: number;
+  secret: string | null;
+  verificationScheme: WebhookVerificationScheme;
+  ackTimeoutMs: number;
+  maxBodyBytes: number;
+} {
   return {
     host: "127.0.0.1",
     port: 0,
     secret: overrides.secret === undefined ? SECRET : overrides.secret,
+    verificationScheme: overrides.verificationScheme ?? "signing-token",
     ackTimeoutMs: overrides.ackTimeoutMs ?? 5_000,
     maxBodyBytes: overrides.maxBodyBytes ?? 1_048_576,
   };
@@ -126,8 +135,8 @@ test("the local GitLab gets its 200 only after the gateway ack arrives", async (
   }
 });
 
-test("a GitLab 18 X-Gitlab-Token delivery is refused and never forwarded", async () => {
-  const harness = await startListener();
+test("a GitLab 18.11 X-Gitlab-Token delivery is forwarded only under the explicit secret-token scheme", async () => {
+  const harness = await startListener({ secret: "classic-secret", verificationScheme: "secret-token" });
   try {
     const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
       method: "POST",
@@ -138,9 +147,28 @@ test("a GitLab 18 X-Gitlab-Token delivery is refused and never forwarded", async
       },
       body: "{}",
     });
-    assert.equal(response.status, 401);
+    assert.equal(response.status, 200);
+    assert.equal(harness.deliveries[0]?.verificationScheme, "secret-token");
+    assert.equal(harness.auditLines.at(-1)?.decision, "accepted");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("the selected signing-token scheme never falls back to X-Gitlab-Token", async () => {
+  const harness = await startListener({ secret: "classic-secret", verificationScheme: "signing-token" });
+  try {
+    const response = await fetch(`${harness.baseUrl}/webhooks/gitlab`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-gitlab-event": "Push Hook",
+        "x-gitlab-token": "classic-secret",
+      },
+      body: "{}",
+    });
+    assert.equal(response.status, 503);
     assert.equal(harness.deliveries.length, 0);
-    assert.equal(harness.auditLines.at(-1)?.decision, "refused");
   } finally {
     await harness.close();
   }

@@ -1,6 +1,9 @@
 import { forwardToGitLab } from "./gitlab-forwarder.js";
+import type { WebhookVerificationScheme } from "@heedvane/connector-protocol";
 
-export const MIN_SUPPORTED_GITLAB_MAJOR = 19;
+export const MIN_SUPPORTED_GITLAB_MAJOR = 18;
+export const MIN_SUPPORTED_GITLAB_MINOR = 11;
+const SIGNING_TOKEN_MIN_GITLAB_MAJOR = 19;
 
 export class GitLabVersionError extends Error {
   constructor(message: string) {
@@ -20,11 +23,23 @@ export function parseGitLabMajorVersion(version: string): number {
 
 export function requireSupportedGitLabVersion(version: string): void {
   const major = parseGitLabMajorVersion(version);
-  if (major < MIN_SUPPORTED_GITLAB_MAJOR) {
+  const minorText = version.split(".", 2)[1];
+  const minor = Number(minorText);
+  if (minorText === undefined || !Number.isInteger(minor) || minor < 0) {
+    throw new GitLabVersionError(`GitLab reported version "${version}", which did not contain a numeric minor version.`);
+  }
+  if (major < MIN_SUPPORTED_GITLAB_MAJOR || (major === MIN_SUPPORTED_GITLAB_MAJOR && minor < MIN_SUPPORTED_GITLAB_MINOR)) {
     throw new GitLabVersionError(
-      `GitLab ${version} is unsupported; heedvane-connector requires GitLab ${MIN_SUPPORTED_GITLAB_MAJOR}.0 or newer.`,
+      `GitLab ${version} is unsupported; heedvane-connector requires GitLab ${MIN_SUPPORTED_GITLAB_MAJOR}.${MIN_SUPPORTED_GITLAB_MINOR} or newer.`,
     );
   }
+}
+
+export function webhookVerificationSchemeForGitLabVersion(version: string): WebhookVerificationScheme {
+  requireSupportedGitLabVersion(version);
+  return parseGitLabMajorVersion(version) >= SIGNING_TOKEN_MIN_GITLAB_MAJOR
+    ? "signing-token"
+    : "secret-token";
 }
 
 interface VerifyGitLabVersionInput {

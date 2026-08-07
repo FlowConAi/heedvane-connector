@@ -27,8 +27,9 @@ Governing design: `code-host-connector-design-2026-07-24` (Heedvane monorepo, `d
   re-introduces head-of-line blocking between bulk and control traffic.
 - **`git-receive-pack` stays structurally absent.** Validation, matching, and profile
   checks each refuse it. Do not weaken one layer because another still holds.
-- **Connector webhooks use GitLab 19+ HMAC only.** `signing-token` is the sole
-  `WebhookVerificationScheme`; plaintext `X-Gitlab-Token` is not a compatibility path.
+- **Connector webhook schemes are version-bound.** `secret-token` is the explicit
+  GitLab 18.11 scheme and `signing-token` is the GitLab 19+ scheme. The listener never
+  infers from header presence or falls back, and the hub binds the frame to the stored scheme.
 - **Closed unions (`StreamErrorCode`, `ConnectionErrorCode`, `WebhookVerificationScheme`,
   `StreamCloseReason`, `FRAME_TYPES`)** are guarded by the sample-coverage test in
   `frames.test.ts`: adding a member without a round-trip sample fails the suite.

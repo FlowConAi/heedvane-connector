@@ -22,7 +22,7 @@ with reasons.
 Pull the published multi-architecture image from GHCR:
 
 ```sh
-docker pull ghcr.io/flowconai/heedvane-connector:0.2.1
+docker pull ghcr.io/flowconai/heedvane-connector:0.2.2
 ```
 
 The hub's enrollment dialog (`POST /api/code-hosts/gitlab/connector-enrollments` in the
@@ -40,7 +40,7 @@ docker run --restart unless-stopped --name heedvane-connector \
   -e "HEEDVANE_CONNECTOR_NAME=Zurich office" \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
   -p 8080:8080 \
-  ghcr.io/flowconai/heedvane-connector:0.2.1
+  ghcr.io/flowconai/heedvane-connector:0.2.2
 ```
 
 First boot enrolls: the connector exchanges the single-use enrollment token for a
@@ -66,7 +66,7 @@ the enrollment token itself cannot be replayed.
 | `HEEDVANE_GATEWAY_CA_FILE` | no | | CA bundle (PEM) for the GATEWAY connection, for an egress proxy that re-signs TLS. |
 | `GITLAB_CA_FILE` | no | | CA bundle (PEM) for the GitLab connection. Deliberately separate from the gateway CA: two trust stores, two knobs. |
 | `WEBHOOK_LISTEN_HOST` / `WEBHOOK_LISTEN_PORT` | no | `0.0.0.0:8080` | Where the local webhook listener binds. |
-| `WEBHOOK_SECRET` | for webhooks | | GitLab 19+ `whsec_` signing token for local HMAC verification (see below). Without it, or with a classic secret, the listener refuses every delivery with 503 rather than accepting an unverified payload. |
+| `WEBHOOK_SECRET` | for webhooks | | Connector-local webhook secret. GitLab 18.11 sends it as `X-Gitlab-Token`; GitLab 19+ uses it as a `whsec_` Standard Webhooks HMAC key. Without it the listener refuses every delivery. |
 | `CONNECTOR_ADVERTISE_HOST` | no | OS hostname | Hostname used in the `webhookBaseUrl` reported to the hub; set it to the address the GitLab server uses to reach this connector. |
 | `GITLAB_REQUEST_TIMEOUT_MS` | no | `25000` | Per-request budget to the local GitLab. Kept below the gateway's 30s so a slow GitLab reports `upstream-timeout` instead of a generic tunnel timeout. |
 
@@ -76,12 +76,13 @@ Point the GitLab instance's webhook at `http://<connector-host>:<port>/webhooks/
 (the exact URL the connector reports as `webhookBaseUrl`). Verification happens locally
 before anything crosses the tunnel:
 
-- GitLab 19+ (`webhook-signature`): `WEBHOOK_SECRET` must be the `whsec_` signing
-  token returned by GitLab. The connector verifies the Standard Webhooks HMAC and
-  timestamp before forwarding the delivery as `verificationScheme: signing-token`.
-- GitLab 18.x `X-Gitlab-Token` deliveries and classic secrets are refused. The
-  connector checks `/api/v4/version` before enrollment and requires GitLab 19.0 or
-  newer.
+- GitLab 18.11 (`X-Gitlab-Token`): the listener uses constant-time comparison and
+  forwards the delivery as `verificationScheme: secret-token`.
+- GitLab 19+ (`webhook-signature`): `WEBHOOK_SECRET` is the `whsec_` signing token.
+  The listener verifies HMAC-SHA256 and the five-minute timestamp before forwarding
+  the delivery as `verificationScheme: signing-token`.
+- The authenticated `/api/v4/version` result selects exactly one scheme before
+  enrollment. Header presence never changes it and there is no fallback.
 
 The connector answers the local GitLab with 200 only after the gateway ack confirms the
 hub queued the delivery; a hub refusal is mirrored with its real status, and a missing
