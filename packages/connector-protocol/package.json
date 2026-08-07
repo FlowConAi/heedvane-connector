@@ -1,6 +1,6 @@
 {
   "name": "@heedvane/connector-protocol",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Wire contract shared by the connector gateway and the customer-run code-host connector: framed JSON over one mutually authenticated WebSocket, plus the signed request allowlist and capability profiles.",

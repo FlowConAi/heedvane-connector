@@ -22,7 +22,7 @@ with reasons.
 Pull the published multi-architecture image from GHCR:
 
 ```sh
-docker pull ghcr.io/flowconai/heedvane-connector:0.2.0
+docker pull ghcr.io/flowconai/heedvane-connector:0.2.1
 ```
 
 The hub's enrollment dialog (`POST /api/code-hosts/gitlab/connector-enrollments` in the
@@ -40,7 +40,7 @@ docker run --restart unless-stopped --name heedvane-connector \
   -e "HEEDVANE_CONNECTOR_NAME=Zurich office" \
   -e HEEDVANE_CAPABILITY_PROFILE=read-only \
   -p 8080:8080 \
-  ghcr.io/flowconai/heedvane-connector:0.2.0
+  ghcr.io/flowconai/heedvane-connector:0.2.1
 ```
 
 First boot enrolls: the connector exchanges the single-use enrollment token for a

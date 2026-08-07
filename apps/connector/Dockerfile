@@ -2,7 +2,7 @@
 # heedvane/connector image. The connector is a pnpm workspace app, so the build context
 # is the REPOSITORY ROOT and the root .dockerignore governs what enters the context:
 #
-#   docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.0 .
+#   docker build -f apps/connector/Dockerfile -t heedvane/connector:0.2.1 .
 
 FROM node:22-alpine AS build
 RUN corepack enable
