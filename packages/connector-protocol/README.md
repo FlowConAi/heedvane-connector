@@ -1,6 +1,6 @@
 # @heedvane/connector-protocol
 
-> Last updated: 2026-08-04
+> Last updated: 2026-08-07
 
 Wire contract shared by the connector gateway (hub side) and the customer-run code-host
 connector. One mutually authenticated WebSocket carries framed JSON in both directions;
@@ -35,10 +35,10 @@ and the failed field. Per-type `is*Frame` guards narrow already-parsed values.
 | `client-hello` | connector to gateway | Opens the tunnel. Enroll: `enrollmentToken` (single-use). Resume: `credential` (long-lived). Exactly one of the two must be present. |
 | `server-hello` | gateway to connector | Tunnel accepted. On enrollment a fresh long-lived `credential` is returned; on resume the field is absent. Carries `credentialRotatesAt`, `allowlistVersion` + `allowlistSignature` announcement, `heartbeatIntervalMs`, and `minSupportedConnectorVersion`. |
 | `allowlist` | gateway to connector | The signed allowlist document: `version`, `signature`, `entries`. Verified with `verifySignedAllowlist` before use. |
-| `request` | gateway to connector | One code-host request on a stream. `credential` present means the hub holds the token (option i); absent means the connector injects it locally (option ii). Both shapes are valid from protocol version 1. |
+| `request` | gateway to connector | One code-host request on a stream. `credential` present means the hub holds the token; absent means the customer connector injects its locally held token. Both current paths are valid from protocol version 1. |
 | `response` | connector to gateway | Terminal success for a `requestId`: status, headers, optional base64 body. |
 | `stream-error` | connector to gateway | Terminal failure for a stream. `requestId` is present on request/response streams and absent on raw byte streams. Codes: request failures (`allowlist-refused`, `profile-refused`, `credential-unavailable`, `upstream-unreachable`, `upstream-timeout`) and byte-stream failures (`target-refused`, `connect-refused`, `connect-timeout`, `upstream-reset`, `flow-control-violated`). |
-| `webhook` | connector to gateway | A code-host webhook delivery. `verificationScheme` is `secret-token` (classic X-Gitlab-Token comparison, the only scheme GitLab before 19 offers) or `signing-token` (GitLab 19+). Headers travel unaltered so the hub can verify. |
+| `webhook` | connector to gateway | A GitLab 19+ Standard Webhooks delivery. `verificationScheme` is `signing-token`; headers and the raw body travel unaltered so the hub can verify the HMAC. Plaintext `X-Gitlab-Token` is not supported. |
 | `stream-open` | gateway to connector | Opens a raw bidirectional byte stream to `target: {host, port}` inside the customer network. Only the gateway opens streams. |
 | `stream-open-ack` | connector to gateway | Open result. `ok: true` carries no `code`/`message`; `ok: false` requires both, with `code` from the shared stream-error set. |
 | `http-stream-open` | gateway to connector | Opens an authenticated, allowlisted GitLab HTTP stream. The connector injects its local token and preserves streaming request and response bodies. Protocol 3 only. |

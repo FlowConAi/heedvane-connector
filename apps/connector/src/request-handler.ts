@@ -1,8 +1,8 @@
 // Per-request policy: a request frame is served only when the signed allowlist matches
 // it AND the local capability profile permits the matched entry. Refusals are terminal
 // stream-errors with the real reason, and every decision lands in the audit log without
-// bodies (the connector is a pipe). Credential injection is the option i / option ii
-// split: the frame credential wins (hub-held token), the local GITLAB_TOKEN is the
+// bodies (the connector is a pipe). Credential ownership may be hub-held or local:
+// the frame credential wins (hub-held token), the local GITLAB_TOKEN is the
 // fallback (credential stays in the customer network), and neither is a refusal, never
 // an unauthenticated upstream call.
 

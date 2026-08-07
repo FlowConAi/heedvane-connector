@@ -95,9 +95,9 @@ export interface RequestFrame {
   readonly query: readonly QueryParam[];
   readonly headers: Readonly<Record<string, string>>;
   readonly bodyBase64?: string;
-  // Present: the hub holds the code-host token and sends it per request (option i).
-  // Absent: the connector injects the credential locally (option ii). Both shapes are
-  // valid from protocol version 1 so reaching option ii is not a protocol break.
+  // Present: the hub holds the code-host token and sends it per request.
+  // Absent: the customer connector injects its locally held credential. Both shapes
+  // are valid from protocol version 1.
   readonly credential?: string;
 }
 
@@ -218,9 +218,9 @@ export interface StreamWindowFrame {
   readonly bytes: number;
 }
 
-// secret-token is the classic X-Gitlab-Token comparison (the only scheme GitLab before
-// 19 offers); signing-token is the HMAC scheme GitLab 19 adds.
-export const WEBHOOK_VERIFICATION_SCHEMES = ["secret-token", "signing-token"] as const;
+// Customer connectors support GitLab 19+ Standard Webhooks HMAC only. The plaintext
+// X-Gitlab-Token mechanism is not a supported connector trust boundary.
+export const WEBHOOK_VERIFICATION_SCHEMES = ["signing-token"] as const;
 export type WebhookVerificationScheme = (typeof WEBHOOK_VERIFICATION_SCHEMES)[number];
 
 export interface WebhookFrame {
@@ -463,7 +463,7 @@ function webhookFailure(value: Record<string, unknown>): string | null {
   if (!isStringRecord(value.headers)) return "headers must be a record of string values";
   if (!isBase64String(value.bodyBase64)) return "bodyBase64 must be canonical base64";
   if (!isOneOf(value.verificationScheme, WEBHOOK_VERIFICATION_SCHEMES)) {
-    return "verificationScheme must be secret-token or signing-token";
+    return "verificationScheme must be signing-token";
   }
   return null;
 }

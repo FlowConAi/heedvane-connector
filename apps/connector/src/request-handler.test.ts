@@ -55,7 +55,7 @@ function depsWith(overrides: Partial<RequestHandlerDeps>): { deps: RequestHandle
   return { deps, lines, calls };
 }
 
-test("option i: the frame credential is injected as the upstream credential", async () => {
+test("a hub-held frame credential is injected as the upstream credential", async () => {
   const { deps, calls } = depsWith({ gitlabToken: "glpat-local" });
   const frame = await serveRequestFrame(requestFrame({ credential: "glpat-from-hub" }), deps);
   assert.equal(frame.type, "response");
@@ -63,7 +63,7 @@ test("option i: the frame credential is injected as the upstream credential", as
   assert.equal(calls[0]?.credential, "glpat-from-hub");
 });
 
-test("option ii: a credential-absent request falls back to the locally configured token", async () => {
+test("a credential-absent request uses the locally configured token", async () => {
   const { deps, calls } = depsWith({ gitlabToken: "glpat-local" });
   const frame = await serveRequestFrame(requestFrame(), deps);
   assert.equal(frame.type, "response");

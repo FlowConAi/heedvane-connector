@@ -160,16 +160,6 @@ const STREAM_CLOSE_NAKED: Frame = { type: "stream-close", streamId: "bulk-1" };
 
 const STREAM_WINDOW: Frame = { type: "stream-window", streamId: "bulk-1", bytes: 65536 };
 
-const WEBHOOK_SECRET_TOKEN: Frame = {
-  type: "webhook",
-  streamId: "stream-9",
-  deliveryId: "delivery-1",
-  event: "Merge Request Hook",
-  headers: { "x-gitlab-event": "Merge Request Hook", "x-gitlab-token": "shared-secret" },
-  bodyBase64: "e30=",
-  verificationScheme: "secret-token",
-};
-
 const WEBHOOK_SIGNING_TOKEN: Frame = {
   type: "webhook",
   streamId: "stream-9",
@@ -221,7 +211,6 @@ const SAMPLE_FRAMES: readonly Frame[] = [
   RESPONSE_WITHOUT_BODY,
   ...STREAM_ERROR_SAMPLES,
   ...BYTE_STREAM_ERROR_SAMPLES,
-  WEBHOOK_SECRET_TOKEN,
   WEBHOOK_SIGNING_TOKEN,
   STREAM_OPEN,
   STREAM_OPEN_ACK_OK,
@@ -304,12 +293,12 @@ test("client hello carries exactly one of enrollmentToken or credential", () => 
   );
 });
 
-test("request frame carries both credential shapes from day one", () => {
-  // Option i: the hub holds the code-host token and sends it on the frame.
+test("request frame carries hub-held and connector-local credential shapes", () => {
+  // A direct provider connection sends the hub-held code-host token on the frame.
   const withCredential = decodeFrame(encodeFrame(REQUEST_WITH_CREDENTIAL)) as RequestFrame;
   assert.equal(withCredential.credential, "code-host-token-held-by-hub");
-  // Option ii: the credential stays in the customer network, so the frame omits it and
-  // the connector injects it locally. Both shapes must parse.
+  // A customer connector keeps the credential in its network, so the frame omits it
+  // and the connector injects it locally. Both shapes must parse.
   const withoutCredential = decodeFrame(encodeFrame(REQUEST_WITHOUT_CREDENTIAL)) as RequestFrame;
   assert.equal(withoutCredential.credential, undefined);
 });
@@ -344,7 +333,7 @@ test("server hello omits credential on resume and carries it on enrollment", () 
 test("frame guards narrow by discriminator", () => {
   assert.ok(isRequestFrame(REQUEST_WITH_CREDENTIAL));
   assert.ok(!isRequestFrame(RESPONSE_WITH_BODY));
-  assert.ok(isWebhookFrame(WEBHOOK_SECRET_TOKEN));
+  assert.ok(isWebhookFrame(WEBHOOK_SIGNING_TOKEN));
   assert.ok(!isWebhookFrame(PING));
   assert.ok(!isRequestFrame("a string is not a frame"));
   assert.ok(isStreamOpenFrame(STREAM_OPEN));
@@ -470,7 +459,7 @@ test("invalid frames are rejected", () => {
 
   assertInvalid({ type: "stream-error", streamId: "s", requestId: "r", code: "nope", message: "m" }, /code/);
 
-  assertInvalid({ type: "webhook", streamId: "s", deliveryId: "d", event: "Push Hook", headers: {}, verificationScheme: "secret-token" }, /bodyBase64/);
+  assertInvalid({ type: "webhook", streamId: "s", deliveryId: "d", event: "Push Hook", headers: {}, bodyBase64: "e30=", verificationScheme: "secret-token" }, /verificationScheme/);
   assertInvalid({ type: "webhook", streamId: "s", deliveryId: "d", event: "Push Hook", headers: {}, bodyBase64: "e30=", verificationScheme: "md5" }, /verificationScheme/);
 
   assertInvalid({ type: "ping" }, /nonce/);

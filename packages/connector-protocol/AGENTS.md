@@ -1,6 +1,6 @@
 # connector-protocol - connector wire contract
 
-> Last updated: 2026-08-04
+> Last updated: 2026-08-07
 
 Framed JSON protocol over the single mutually authenticated WebSocket between the
 connector gateway and the customer-run code-host connector, plus the signed request
@@ -14,9 +14,9 @@ Governing design: `code-host-connector-design-2026-07-24` (Heedvane monorepo, `d
 - **Unknown fields are tolerated, unknown frame types are not.** Connector and gateway
   ship independently, so validators never strip fields they do not know. Removing that
   tolerance is a protocol break.
-- **`RequestFrame.credential` present vs absent is the option i / option ii split.**
-  Both shapes must stay valid from protocol version 1; validating one and not the other
-  forces a protocol break exactly when the enterprise tier needs it.
+- **`RequestFrame.credential` presence names the credential owner.** A present value is
+  hub-held; an absent value means the customer connector injects its local credential.
+  Both shapes stay valid because the direct and connector paths are both current.
 - **`PROTOCOL_VERSION` is the stream-capability signal.** Version 1 peers reject unknown
   frame types rather than ignore them, so byte streams (open/ack/data/close/window) are
   version 2. Authenticated HTTP streams are version 3. Bump the version whenever a new
@@ -27,6 +27,8 @@ Governing design: `code-host-connector-design-2026-07-24` (Heedvane monorepo, `d
   re-introduces head-of-line blocking between bulk and control traffic.
 - **`git-receive-pack` stays structurally absent.** Validation, matching, and profile
   checks each refuse it. Do not weaken one layer because another still holds.
+- **Connector webhooks use GitLab 19+ HMAC only.** `signing-token` is the sole
+  `WebhookVerificationScheme`; plaintext `X-Gitlab-Token` is not a compatibility path.
 - **Closed unions (`StreamErrorCode`, `ConnectionErrorCode`, `WebhookVerificationScheme`,
   `StreamCloseReason`, `FRAME_TYPES`)** are guarded by the sample-coverage test in
   `frames.test.ts`: adding a member without a round-trip sample fails the suite.

@@ -357,7 +357,7 @@ test("a webhook frame is acked by a terminal response on its stream carrying the
       event: "Push Hook",
       headers: { "x-gitlab-event": "Push Hook" },
       bodyBase64: Buffer.from("{}").toString("base64"),
-      verificationScheme: "secret-token",
+      verificationScheme: "signing-token",
     };
     const ack = await harness.tunnel.deliverWebhook(webhook);
     assert.equal(ack.ok, true);
@@ -401,7 +401,7 @@ test("a hub webhook refusal travels back to the caller with its real status and 
       event: "Push Hook",
       headers: {},
       bodyBase64: Buffer.from("{}").toString("base64"),
-      verificationScheme: "secret-token",
+      verificationScheme: "signing-token",
     });
     assert.equal(ack.ok, false);
     assert.equal(ack.status, 422);
@@ -434,7 +434,7 @@ test("a webhook delivered while the tunnel is down fails honestly instead of pre
     event: "Push Hook",
     headers: {},
     bodyBase64: Buffer.from("{}").toString("base64"),
-    verificationScheme: "secret-token",
+    verificationScheme: "signing-token",
   });
   assert.equal(ack.ok, false);
   assert.match(ack.error ?? "", /not connected|no live tunnel|tunnel/i);
