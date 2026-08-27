@@ -515,6 +515,50 @@ test("after a drop the tunnel reconnects with the issued credential, not the spe
   }
 });
 
+test("a fully admitted session resets reconnect backoff before a later drop", async () => {
+  const keys = generateKeyPairSync("ed25519");
+  const gitlab = await startStubGitLab();
+  let handshakes = 0;
+  const onHello = (hello: Record<string, unknown>, socket: WebSocket, gateway: StubGateway): void => {
+    handshakes += 1;
+    if (handshakes <= 3) {
+      socket.terminate();
+      return;
+    }
+    helloDefaults(gateway, keys)(hello, socket);
+  };
+  const gateway = await startStubGateway({ keys, onHello });
+  const harness = startTunnel({
+    config: testConfig({
+      gatewayUrl: gateway.url,
+      gitlabBaseUrl: gitlab.baseUrl,
+      credential: "cred-1",
+      enrollmentToken: null,
+    }),
+    publicKey: keys.publicKey,
+  });
+  try {
+    await waitFor(
+      () => harness.logs.some((line) => line.includes("verified the signed allowlist")),
+      "one admitted tunnel after three failed handshakes",
+    );
+    const admittedSocket = await gateway.waitForConnection();
+    admittedSocket.terminate();
+    await waitFor(() => gateway.hellos.length >= 5, "reconnect after the admitted tunnel drops");
+
+    const delays = harness.logs.flatMap((line) => {
+      const match = /reconnecting in (\d+)ms$/.exec(line);
+      return match ? [Number(match[1])] : [];
+    });
+    assert.deepEqual(delays.slice(0, 4), [25, 50, 100, 25]);
+  } finally {
+    harness.tunnel.stop();
+    await harness.runPromise;
+    await gateway.close();
+    await gitlab.close();
+  }
+});
+
 test("the tunnel dials out through a corporate CONNECT proxy", async () => {
   const keys = generateKeyPairSync("ed25519");
   const gitlab = await startStubGitLab();

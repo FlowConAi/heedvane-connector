@@ -99,6 +99,11 @@ type SessionEnd =
   | { readonly kind: "dropped" }
   | { readonly kind: "terminal"; readonly message: string };
 
+interface SessionResult {
+  readonly end: SessionEnd;
+  readonly admitted: boolean;
+}
+
 /** The three frame types that travel on an already-open byte stream (open has its own
  *  handler). Grouped so onFrame routes them as one branch. */
 function isGatewayStreamFrame(frame: Frame): frame is StreamDataFrame | StreamWindowFrame | StreamCloseFrame {
@@ -141,12 +146,13 @@ export class ConnectorTunnel {
   public async run(): Promise<number> {
     let attempt = 0;
     while (!this.stopped) {
-      const end = await this.runSession();
+      const { end, admitted } = await this.runSession();
       if (end.kind === "terminal") {
         this.options.log(`[connector] ${end.message}`);
         return 1;
       }
       if (this.stopped) return 0;
+      if (admitted) attempt = 0;
       const delay = backoffDelayMs(attempt, this.backoff, this.random);
       attempt += 1;
       this.options.log(`[connector] the tunnel to the gateway is down; reconnecting in ${delay}ms`);
@@ -190,7 +196,7 @@ export class ConnectorTunnel {
     return await ack;
   }
 
-  private runSession(): Promise<SessionEnd> {
+  private runSession(): Promise<SessionResult> {
     const socketOptions: ClientOptions = buildGatewaySocketOptions({
       gatewayUrl: this.options.config.gatewayUrl,
       proxyUrl: this.options.config.proxyUrl,
@@ -206,13 +212,14 @@ export class ConnectorTunnel {
       streams: new Map(),
     };
     this.session = session;
-    return new Promise<SessionEnd>((resolve) => {
+    return new Promise<SessionResult>((resolve) => {
       let finished = false;
       const finish = (end: SessionEnd): void => {
         if (finished) return;
         finished = true;
+        const admitted = session.entries !== null;
         this.clearSession();
-        resolve(end);
+        resolve({ end, admitted });
       };
       socket.on("open", () => this.send(session, this.clientHello()));
       socket.on("message", (data: Buffer) => this.onFrame(session, data, finish));
