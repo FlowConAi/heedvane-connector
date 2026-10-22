@@ -1,3 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Never install a release younger than 7 days (minutes); poisoned versions land in that window.
+minimumReleaseAge: 10080
